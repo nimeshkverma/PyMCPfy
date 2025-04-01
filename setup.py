@@ -8,7 +8,7 @@ setup(
     version="0.1.0",
     author="Nimesh Kiran Verma",
     author_email="nimesh.aug11@gmail.com",
-    description="A Python library to expose web framework APIs via Model Context Protocol (MCP)",
+    description="A Python library to expose web framework APIs via FastMCP",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/nimeshkverma/pymcpfy",
@@ -26,16 +26,29 @@ setup(
     ],
     python_requires=">=3.8",
     install_requires=[
-        "mcp>=0.1.0",  # Base MCP SDK
+        "fastmcp>=0.4.0",  # FastMCP SDK
         "pydantic>=2.0.0",
         "typing-extensions>=4.0.0",
         "PyYAML>=6.0",
         "websockets>=10.0",
+        "python-jose[cryptography]>=3.3.0",  # For JWT handling
     ],
     extras_require={
-        "django": ["django>=3.2"],
-        "flask": ["flask>=2.0.0"],
-        "fastapi": ["fastapi>=0.70.0", "uvicorn>=0.15.0"],
+        "django": [
+            "django>=3.2",
+            "djangorestframework>=3.12.0",
+            "django-cors-headers>=3.10.0"
+        ],
+        "flask": [
+            "flask>=2.0.0",
+            "flask-sqlalchemy>=3.0.0",
+            "flask-jwt-extended>=4.4.0"
+        ],
+        "fastapi": [
+            "fastapi>=0.70.0",
+            "uvicorn>=0.15.0",
+            "python-multipart>=0.0.5"  # For form data handling
+        ],
         "dev": [
             "pytest>=7.0.0",
             "pytest-asyncio>=0.18.0",

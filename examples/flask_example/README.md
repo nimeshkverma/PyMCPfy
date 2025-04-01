@@ -1,135 +1,116 @@
-# Flask Todo List Example with PyMCPfy
+# Flask Todo Example
 
-This example demonstrates how to build a Todo List API using Flask and expose it via MCP using PyMCPfy.
+This example demonstrates how to build a todo list application using Flask and FastMCP.
 
 ## Features
 
-- User authentication with JWT
-- CRUD operations for todos
-- SQLite database with SQLAlchemy
-- MCP integration for AI interaction
+- SQLAlchemy database integration
+- JWT authentication
+- FastMCP integration for MCP functionality
+- Resource definitions for todo schema
+- Tool definitions for todo operations
+- Helpful prompts for todo commands
 
-## Setup
+## Installation
 
-1. Create a virtual environment:
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r ../../requirements.txt
 ```
 
-2. Install dependencies:
+## Running the Example
+
 ```bash
-pip install -r requirements.txt
+flask run
 ```
 
-3. Run the server:
-```bash
-python app.py
+## FastMCP Usage
+
+### Resources
+
+```python
+@mcp.resource("schema://todos")
+def get_todo_schema() -> str:
+    """Get the database schema for todos."""
+    return """
+    Todo:
+        id: integer (primary key)
+        title: string (required)
+        description: text (optional)
+        done: boolean (default: false)
+        due_date: datetime (optional)
+        created_at: datetime (auto)
+        user_id: integer (foreign key)
+    """
 ```
 
-The server will start at:
-- HTTP: http://localhost:5000
-- MCP: ws://localhost:8765
+### Tools
+
+```python
+@mcp.tool()
+def create_todo(
+    ctx: Context,
+    token: str,
+    title: str,
+    description: Optional[str] = None,
+    due_date: Optional[str] = None
+) -> dict:
+    """Create a new todo."""
+    todo = Todo(
+        title=title,
+        description=description,
+        due_date=datetime.fromisoformat(due_date) if due_date else None,
+        user_id=user.id
+    )
+    ctx.log.info(f"Created new todo '{title}' for user {username}")
+    return todo.__dict__
+```
+
+### Prompts
+
+```python
+@mcp.prompt()
+def todo_guidelines() -> str:
+    """Guidelines for creating todos."""
+    return """
+    When creating or updating a todo:
+    1. Title should be clear and concise
+    2. Description should provide necessary details
+    3. Due dates should be in YYYY-MM-DD format
+    4. Mark todos as done when completed
+    """
+```
 
 ## API Endpoints
 
-### Authentication
+- `POST /login`: Get JWT token
+- `GET /todos`: Get user's todos
+- `POST /todos`: Create new todo
+- `PUT /todos/<id>`: Update todo
+- `DELETE /todos/<id>`: Delete todo
 
+## Testing
+
+1. Get a token:
 ```bash
-# Get access token
-curl -X POST http://localhost:5000/login \
-  -H "Content-Type: application/json" \
-  -d '{"username": "demo", "password": "demo123"}'
+curl -X POST http://localhost:5000/login -d '{"username":"user1","password":"pass1"}'
 ```
 
-### Todos
-
+2. Get todos:
 ```bash
-# Get all todos
-curl http://localhost:5000/todos \
-  -H "Authorization: Bearer YOUR_TOKEN"
-
-# Create todo
-curl -X POST http://localhost:5000/todos \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Learn PyMCPfy",
-    "description": "Build an awesome API",
-    "due_date": "2025-04-15T12:00:00"
-  }'
-
-# Update todo
-curl -X PUT http://localhost:5000/todos/1 \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "done": true
-  }'
-
-# Delete todo
-curl -X DELETE http://localhost:5000/todos/1 \
-  -H "Authorization: Bearer YOUR_TOKEN"
+curl -H "Authorization: Bearer $TOKEN" http://localhost:5000/todos
 ```
 
-## MCP Integration
-
-Connect to the MCP server and interact with the API:
-
-```python
-from mcp import MCPClient
-
-async with MCPClient("ws://localhost:8765") as client:
-    # Login
-    response = await client.call_function(
-        "login",
-        {"username": "demo", "password": "demo123"}
-    )
-    token = response["access_token"]
-    
-    # Create todo
-    todo = await client.call_function(
-        "create_todo",
-        {
-            "title": "Learn PyMCPfy",
-            "description": "Build an awesome API",
-            "due_date": "2025-04-15T12:00:00"
-        },
-        headers={"Authorization": f"Bearer {token}"}
-    )
-    
-    # Get todos
-    todos = await client.call_function(
-        "get_todos",
-        headers={"Authorization": f"Bearer {token}"}
-    )
-    
-    # Update todo
-    updated_todo = await client.call_function(
-        "update_todo",
-        {"done": True},
-        headers={"Authorization": f"Bearer {token}"},
-        params={"todo_id": todo["id"]}
-    )
-    
-    # Delete todo
-    result = await client.call_function(
-        "delete_todo",
-        headers={"Authorization": f"Bearer {token}"},
-        params={"todo_id": todo["id"]}
-    )
+3. Create todo:
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:5000/todos -d '{"title":"Test Todo","description":"Test Description"}'
 ```
 
-## Database
+4. Update todo:
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" http://localhost:5000/todos/1 -d '{"done":true}'
+```
 
-The application uses SQLite with SQLAlchemy. The database file (`todos.db`) will be created automatically when you run the application for the first time.
-
-## Security Note
-
-This is a demo application. In production:
-- Use proper password hashing
-- Use a more secure JWT secret key
-- Implement proper error handling
-- Use a production-grade database
-- Add input validation
-- Implement rate limiting
+5. Delete todo:
+```bash
+curl -X DELETE -H "Authorization: Bearer $TOKEN" http://localhost:5000/todos/1
+```

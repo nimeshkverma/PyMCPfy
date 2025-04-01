@@ -1,5 +1,5 @@
 """
-Flask Example: Todo List API with MCP Integration
+Flask Example: Todo List API with FastMCP Integration
 """
 
 from datetime import datetime
@@ -11,10 +11,12 @@ from flask_jwt_extended import (
     get_jwt_identity
 )
 from dataclasses import dataclass
-from pymcpfy.flask import mcpfy
+from fastmcp import FastMCP, Context
+from pydantic import BaseModel
 
-# Initialize Flask app
+# Initialize Flask and FastMCP apps
 app = Flask(__name__)
+mcp = FastMCP("Todo API", dependencies=["flask", "flask-sqlalchemy", "flask-jwt-extended"])
 
 # Configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///todos.db'
@@ -55,114 +57,195 @@ class Todo(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
-# Routes
-@app.route('/login', methods=['POST'])
-@mcpfy()
-def login():
+# Resources
+@mcp.resource("schema://todos")
+def get_todo_schema() -> str:
+    """Get the database schema for todos."""
+    return """
+    Todo:
+        id: integer (primary key)
+        title: string (required)
+        description: text (optional)
+        done: boolean (default: false)
+        due_date: datetime (optional)
+        created_at: datetime (auto)
+        user_id: integer (foreign key)
+    """
+
+@mcp.resource("users://{user_id}/todos")
+def get_user_todos(user_id: int) -> List[dict]:
+    """Get todos for a specific user.
+    
+    :param user_id: User ID to lookup
+    :return: List of todos
+    """
+    todos = Todo.query.filter_by(user_id=user_id).all()
+    return [todo.__dict__ for todo in todos]
+
+# Tools
+@mcp.tool()
+def login(ctx: Context, username: str, password: str) -> dict:
     """Login to get access token.
     
     :param username: User's username
     :param password: User's password
     :return: Access token
     """
-    username = request.json.get('username')
-    password = request.json.get('password')
-    
     user = User.query.filter_by(username=username).first()
     if not user or user.password != password:  # Use proper password hashing in production
-        return jsonify({"error": "Invalid credentials"}), 401
+        ctx.log.error(f"Failed login attempt for user {username}")
+        return {"error": "Invalid credentials"}, 401
     
+    ctx.log.info(f"Successful login for user {username}")
     access_token = create_access_token(identity=username)
-    return jsonify({"access_token": access_token})
+    return {"access_token": access_token}
 
-@app.route('/todos', methods=['GET'])
-@jwt_required()
-@mcpfy()
-def get_todos():
+@mcp.tool()
+def get_todos(ctx: Context, token: str) -> List[dict]:
     """Get all todos for the current user.
     
+    :param token: JWT token
     :return: List of todos
     """
-    current_user = User.query.filter_by(username=get_jwt_identity()).first()
-    return jsonify(current_user.todos)
+    try:
+        username = get_jwt_identity()
+        user = User.query.filter_by(username=username).first()
+        ctx.log.info(f"Fetching todos for user {username}")
+        return [todo.__dict__ for todo in user.todos]
+    except Exception as e:
+        ctx.log.error(f"Error fetching todos: {str(e)}")
+        return {"error": str(e)}, 401
 
-@app.route('/todos', methods=['POST'])
-@jwt_required()
-@mcpfy()
-def create_todo():
+@mcp.tool()
+def create_todo(
+    ctx: Context,
+    token: str,
+    title: str,
+    description: Optional[str] = None,
+    due_date: Optional[str] = None
+) -> dict:
     """Create a new todo.
     
+    :param token: JWT token
     :param title: Todo title
-    :param description: Todo description
-    :param due_date: Due date (optional)
+    :param description: Todo description (optional)
+    :param due_date: Due date (optional, format: YYYY-MM-DD)
     :return: Created todo
     """
-    current_user = User.query.filter_by(username=get_jwt_identity()).first()
-    
-    data = request.json
-    todo = Todo(
-        title=data['title'],
-        description=data.get('description'),
-        due_date=datetime.fromisoformat(data['due_date']) if data.get('due_date') else None,
-        user_id=current_user.id
-    )
-    
-    db.session.add(todo)
-    db.session.commit()
-    
-    return jsonify(todo)
+    try:
+        username = get_jwt_identity()
+        user = User.query.filter_by(username=username).first()
+        
+        todo = Todo(
+            title=title,
+            description=description,
+            due_date=datetime.fromisoformat(due_date) if due_date else None,
+            user_id=user.id
+        )
+        
+        db.session.add(todo)
+        db.session.commit()
+        
+        ctx.log.info(f"Created new todo '{title}' for user {username}")
+        return todo.__dict__
+    except Exception as e:
+        ctx.log.error(f"Error creating todo: {str(e)}")
+        return {"error": str(e)}, 400
 
-@app.route('/todos/<int:todo_id>', methods=['PUT'])
-@jwt_required()
-@mcpfy()
-def update_todo(todo_id: int):
+@mcp.tool()
+def update_todo(
+    ctx: Context,
+    token: str,
+    todo_id: int,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    done: Optional[bool] = None,
+    due_date: Optional[str] = None
+) -> dict:
     """Update a todo.
     
+    :param token: JWT token
     :param todo_id: ID of the todo to update
     :param title: New title (optional)
     :param description: New description (optional)
     :param done: New done status (optional)
-    :param due_date: New due date (optional)
+    :param due_date: New due date (optional, format: YYYY-MM-DD)
     :return: Updated todo
     """
-    current_user = User.query.filter_by(username=get_jwt_identity()).first()
-    todo = Todo.query.filter_by(id=todo_id, user_id=current_user.id).first()
-    
-    if not todo:
-        return jsonify({"error": "Todo not found"}), 404
-    
-    data = request.json
-    if 'title' in data:
-        todo.title = data['title']
-    if 'description' in data:
-        todo.description = data['description']
-    if 'done' in data:
-        todo.done = data['done']
-    if 'due_date' in data:
-        todo.due_date = datetime.fromisoformat(data['due_date'])
-    
-    db.session.commit()
-    return jsonify(todo)
+    try:
+        username = get_jwt_identity()
+        user = User.query.filter_by(username=username).first()
+        todo = Todo.query.filter_by(id=todo_id, user_id=user.id).first()
+        
+        if not todo:
+            return {"error": "Todo not found"}, 404
+        
+        if title:
+            todo.title = title
+        if description:
+            todo.description = description
+        if done is not None:
+            todo.done = done
+        if due_date:
+            todo.due_date = datetime.fromisoformat(due_date)
+        
+        db.session.commit()
+        ctx.log.info(f"Updated todo {todo_id} for user {username}")
+        return todo.__dict__
+    except Exception as e:
+        ctx.log.error(f"Error updating todo: {str(e)}")
+        return {"error": str(e)}, 400
 
-@app.route('/todos/<int:todo_id>', methods=['DELETE'])
-@jwt_required()
-@mcpfy()
-def delete_todo(todo_id: int):
+@mcp.tool()
+def delete_todo(ctx: Context, token: str, todo_id: int) -> dict:
     """Delete a todo.
     
+    :param token: JWT token
     :param todo_id: ID of the todo to delete
     :return: Success message
     """
-    current_user = User.query.filter_by(username=get_jwt_identity()).first()
-    todo = Todo.query.filter_by(id=todo_id, user_id=current_user.id).first()
-    
-    if not todo:
-        return jsonify({"error": "Todo not found"}), 404
-    
-    db.session.delete(todo)
-    db.session.commit()
-    
-    return jsonify({"message": "Todo deleted"})
+    try:
+        username = get_jwt_identity()
+        user = User.query.filter_by(username=username).first()
+        todo = Todo.query.filter_by(id=todo_id, user_id=user.id).first()
+        
+        if not todo:
+            return {"error": "Todo not found"}, 404
+        
+        db.session.delete(todo)
+        db.session.commit()
+        
+        ctx.log.info(f"Deleted todo {todo_id} for user {username}")
+        return {"message": "Todo deleted"}
+    except Exception as e:
+        ctx.log.error(f"Error deleting todo: {str(e)}")
+        return {"error": str(e)}, 400
+
+# Prompts
+@mcp.prompt()
+def help_todos() -> str:
+    """Help prompt for todo commands."""
+    return """
+    Available commands:
+    1. Login: Use the login tool with your username and password
+    2. Get Todos: Use get_todos tool to view your todos
+    3. Create Todo: Use create_todo tool to create a new todo
+    4. Update Todo: Use update_todo tool to modify a todo
+    5. Delete Todo: Use delete_todo tool to remove a todo
+    6. View Schema: Check schema://todos resource
+    7. View User's Todos: Check users://{user_id}/todos resource
+    """
+
+@mcp.prompt()
+def todo_guidelines() -> str:
+    """Guidelines for creating todos."""
+    return """
+    When creating or updating a todo:
+    1. Title should be clear and concise
+    2. Description should provide necessary details
+    3. Due dates should be in YYYY-MM-DD format
+    4. Mark todos as done when completed
+    """
 
 # Create database tables
 with app.app_context():

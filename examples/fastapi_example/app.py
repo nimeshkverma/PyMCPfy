@@ -1,5 +1,5 @@
 """
-FastAPI Example: Real-time Chat API with MCP Integration
+FastAPI Example: Real-time Chat API with FastMCP Integration
 """
 
 from typing import List, Optional
@@ -7,12 +7,13 @@ from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
-from pymcpfy.fastapi import mcpfy
+from fastmcp import FastMCP, Context, Image
 import jwt
 import uvicorn
 
-# Initialize FastAPI app
+# Initialize FastAPI and FastMCP apps
 app = FastAPI(title="Chat API")
+mcp = FastMCP("Chat API", dependencies=["fastapi", "python-jose[cryptography]"])
 
 # Security
 SECRET_KEY = "your-secret-key"  # In production, use environment variable
@@ -45,26 +46,118 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
-# Authentication
-def create_token(username: str) -> str:
-    """Create JWT token for user."""
+# Resources
+@mcp.resource("users://{username}/profile")
+def get_user_profile(username: str) -> dict:
+    """Get a user's profile data.
+    
+    :param username: Username to lookup
+    :return: User profile data
+    """
+    user = users.get(username)
+    if not user:
+        return {"error": "User not found"}
+    return {
+        "username": user["username"],
+        "full_name": user["full_name"]
+    }
+
+@mcp.resource("users://active")
+def get_active_users() -> List[str]:
+    """Get list of currently active users.
+    
+    :return: List of usernames
+    """
+    return [conn.username for conn in active_connections if hasattr(conn, 'username')]
+
+# Tools
+@mcp.tool()
+async def login(ctx: Context, username: str, password: str) -> dict:
+    """Login to get access token.
+    
+    :param username: User's username
+    :param password: User's password
+    :return: Access token and type
+    """
+    user = users.get(username)
+    if not user or password != user["password"]:
+        ctx.log.error(f"Failed login attempt for user {username}")
+        raise HTTPException(status_code=400, detail="Invalid credentials")
+    
+    ctx.log.info(f"Successful login for user {username}")
     token = jwt.encode(
         {"sub": username},
         SECRET_KEY,
         algorithm=ALGORITHM
     )
-    return token
+    return {"access_token": token, "token_type": "bearer"}
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
-    """Get current user from token."""
+@mcp.tool()
+async def get_messages(ctx: Context, limit: Optional[int] = 50) -> List[Message]:
+    """Get chat messages.
+    
+    :param limit: Maximum number of messages to return
+    :return: List of messages
+    """
+    ctx.log.info(f"Fetching {limit} messages")
+    return messages[-limit:]
+
+@mcp.tool()
+async def create_message(ctx: Context, content: str, token: str) -> Message:
+    """Create a new message.
+    
+    :param content: Message content
+    :param token: JWT token
+    :return: Created message
+    """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username = payload.get("sub")
         if not username or username not in users:
             raise HTTPException(status_code=401)
-        return User(**users[username])
     except jwt.JWTError:
         raise HTTPException(status_code=401)
+
+    message = Message(
+        id=len(messages),
+        content=content,
+        sender=username,
+        timestamp=datetime.now()
+    )
+    messages.append(message)
+    
+    ctx.log.info(f"New message from {username}: {content}")
+    
+    # Broadcast to WebSocket clients
+    await manager.broadcast(
+        f"{username}: {content}"
+    )
+    
+    return message
+
+# Prompts
+@mcp.prompt()
+def help_chat() -> str:
+    """Help prompt for chat commands."""
+    return """
+    Available commands:
+    1. Login: Use the login tool with your username and password
+    2. Get Messages: Use get_messages tool to view chat history
+    3. Send Message: Use create_message tool to send a new message
+    4. View Active Users: Check users://active resource
+    5. View User Profile: Check users://{username}/profile resource
+    """
+
+@mcp.prompt()
+def message_guidelines() -> str:
+    """Guidelines for creating messages."""
+    return """
+    When creating a message, please follow these guidelines:
+    1. Keep messages concise and clear
+    2. Be respectful to other users
+    3. Don't share sensitive information
+    4. Use appropriate language
+    """
 
 # WebSocket Manager
 class ConnectionManager:
@@ -86,58 +179,35 @@ manager = ConnectionManager()
 
 # API Endpoints
 @app.post("/token")
-@mcpfy()
-async def login(form_data: OAuth2PasswordRequestForm = Depends()) -> Token:
+@mcp.tool()
+async def login_endpoint(form_data: OAuth2PasswordRequestForm = Depends()) -> dict:
     """Login to get access token.
     
     :param form_data: Username and password
-    :return: Access token
+    :return: Access token and type
     """
-    user = users.get(form_data.username)
-    if not user or form_data.password != user["password"]:
-        raise HTTPException(status_code=400, detail="Invalid credentials")
-    
-    token = create_token(user["username"])
-    return Token(access_token=token, token_type="bearer")
+    return await login(None, form_data.username, form_data.password)
 
 @app.get("/messages")
-@mcpfy()
-async def get_messages(
-    limit: Optional[int] = 50,
-    current_user: User = Depends(get_current_user)
-) -> List[Message]:
+@mcp.tool()
+async def get_messages_endpoint(limit: Optional[int] = 50) -> List[Message]:
     """Get chat messages.
     
     :param limit: Maximum number of messages to return
     :return: List of messages
     """
-    return messages[-limit:]
+    return await get_messages(None, limit)
 
 @app.post("/messages")
-@mcpfy()
-async def create_message(
-    content: str,
-    current_user: User = Depends(get_current_user)
-) -> Message:
+@mcp.tool()
+async def create_message_endpoint(content: str, token: str) -> Message:
     """Create a new message.
     
     :param content: Message content
+    :param token: JWT token
     :return: Created message
     """
-    message = Message(
-        id=len(messages),
-        content=content,
-        sender=current_user.username,
-        timestamp=datetime.now()
-    )
-    messages.append(message)
-    
-    # Broadcast to WebSocket clients
-    await manager.broadcast(
-        f"{current_user.username}: {content}"
-    )
-    
-    return message
+    return await create_message(None, content, token)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -146,7 +216,9 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
-            await manager.broadcast(f"Message: {data}")
+            await manager.broadcast(
+                f"Message: {data}"
+            )
     except WebSocketDisconnect:
         manager.disconnect(websocket)
         await manager.broadcast("Client disconnected")

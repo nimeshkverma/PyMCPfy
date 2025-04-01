@@ -4,9 +4,11 @@ from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.contrib.auth.models import User
-from pymcpfy.django import mcpfy
+from fastmcp import FastMCP, Context
 from .serializers import UserSerializer
 
+# Initialize FastMCP
+mcp = FastMCP("User API")
 
 class UserViewSet(viewsets.ModelViewSet):
     """
@@ -22,8 +24,8 @@ class UserViewSet(viewsets.ModelViewSet):
             return [permissions.AllowAny()]
         return super().get_permissions()
 
-    @mcpfy()
-    def create(self, request):
+    @mcp.tool()
+    def create(self, request: object, ctx: Context):
         """
         Create a new user with profile.
         
@@ -42,29 +44,32 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+        ctx.log.info(f"Created new user: {user.username}")
         return Response(self.get_serializer(user).data)
 
-    @mcpfy()
-    def list(self, request):
+    @mcp.tool()
+    def list(self, request: object, ctx: Context):
         """
         List all users.
         
         :return: List of users
         """
+        ctx.log.info("Listing all users")
         return super().list(request)
 
-    @mcpfy()
-    def retrieve(self, request, pk=None):
+    @mcp.tool()
+    def retrieve(self, request: object, ctx: Context, pk: int = None):
         """
         Get a specific user by ID.
         
         :param pk: User ID
         :return: User data
         """
+        ctx.log.info(f"Retrieving user {pk}")
         return super().retrieve(request, pk=pk)
 
-    @mcpfy()
-    def update(self, request, pk=None):
+    @mcp.tool()
+    def update(self, request: object, ctx: Context, pk: int = None):
         """
         Update a user.
         
@@ -81,21 +86,23 @@ class UserViewSet(viewsets.ModelViewSet):
             - avatar: Avatar URL
         :return: Updated user data
         """
+        ctx.log.info(f"Updating user {pk}")
         return super().update(request, pk=pk)
 
-    @mcpfy()
-    def destroy(self, request, pk=None):
+    @mcp.tool()
+    def destroy(self, request: object, ctx: Context, pk: int = None):
         """
         Delete a user.
         
         :param pk: User ID to delete
         :return: Success message
         """
+        ctx.log.info(f"Deleting user {pk}")
         return super().destroy(request, pk=pk)
 
     @action(detail=True, methods=['get'])
-    @mcpfy()
-    def profile(self, request, pk=None):
+    @mcp.tool()
+    def profile(self, request: object, ctx: Context, pk: int = None):
         """
         Get user's profile.
         
@@ -103,5 +110,6 @@ class UserViewSet(viewsets.ModelViewSet):
         :return: User profile data
         """
         user = self.get_object()
+        ctx.log.info(f"Retrieving profile for user {user.username}")
         serializer = self.get_serializer(user)
         return Response(serializer.data.get('profile', {}))

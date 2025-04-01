@@ -1,24 +1,23 @@
-"""WebSocket transport implementation for MCP."""
+"""WebSocket transport implementation for FastMCP."""
 
 import asyncio
 import json
 from typing import Any, Dict, Optional
 import websockets
 from websockets.server import WebSocketServerProtocol
-
-from ..mcp_protocol import MCPRegistry, MCPContext, MCPResponse
+from fastmcp import FastMCP, Context
 
 class WebSocketTransport:
-    """WebSocket transport for MCP communication."""
+    """WebSocket transport for FastMCP communication."""
     def __init__(
         self,
-        registry: MCPRegistry,
+        mcp: FastMCP,
         host: str = "localhost",
         port: int = 8765,
         ping_interval: int = 20,
         ping_timeout: int = 20
     ):
-        self.registry = registry
+        self.mcp = mcp
         self.host = host
         self.port = port
         self.ping_interval = ping_interval
@@ -34,7 +33,7 @@ class WebSocketTransport:
             ping_interval=self.ping_interval,
             ping_timeout=self.ping_timeout
         )
-        print(f"MCP WebSocket server running at ws://{self.host}:{self.port}")
+        print(f"FastMCP WebSocket server running at ws://{self.host}:{self.port}")
 
     async def stop(self):
         """Stop the WebSocket server."""
@@ -68,50 +67,93 @@ class WebSocketTransport:
         request: Dict[str, Any],
         websocket: WebSocketServerProtocol
     ) -> Dict[str, Any]:
-        """Handle incoming MCP requests."""
-        request_id = request.get("id")
-        function_name = request.get("function")
-        parameters = request.get("parameters", {})
-
-        if not function_name:
-            return {
-                "id": request_id,
-                "error": "Missing function name",
-                "status": 400
-            }
-
-        function = self.registry.get_function(function_name)
-        if not function:
-            return {
-                "id": request_id,
-                "error": f"Function {function_name} not found",
-                "status": 404
-            }
-
-        context = MCPContext(
-            request_id=request_id,
-            metadata=request.get("metadata", {}),
-            transport="websocket",
-            raw_request=request
-        )
+        """Handle incoming MCP request."""
+        request_type = request.get("type")
+        if not request_type:
+            return {"error": "Missing request type", "status": 400}
 
         try:
-            if function.is_async:
-                result = await function.func(context, **parameters)
+            if request_type == "resource":
+                return await self._handle_resource_request(request, websocket)
+            elif request_type == "tool":
+                return await self._handle_tool_request(request, websocket)
+            elif request_type == "prompt":
+                return await self._handle_prompt_request(request, websocket)
+            elif request_type == "schema":
+                return await self._handle_schema_request(request, websocket)
             else:
-                result = await asyncio.to_thread(function.func, context, **parameters)
-
-            if isinstance(result, MCPResponse):
-                response = result.to_dict()
-            else:
-                response = MCPResponse(result).to_dict()
-
-            response["id"] = request_id
-            return response
-
+                return {"error": f"Unknown request type: {request_type}", "status": 400}
         except Exception as e:
-            return {
-                "id": request_id,
-                "error": str(e),
-                "status": 500
-            }
+            return {"error": str(e), "status": 500}
+
+    async def _handle_resource_request(
+        self,
+        request: Dict[str, Any],
+        websocket: WebSocketServerProtocol
+    ) -> Dict[str, Any]:
+        """Handle resource request."""
+        path = request.get("path")
+        if not path:
+            return {"error": "Missing resource path", "status": 400}
+
+        try:
+            result = await self.mcp.get_resource(path, request.get("parameters", {}))
+            return {"data": result, "status": 200}
+        except Exception as e:
+            return {"error": str(e), "status": 500}
+
+    async def _handle_tool_request(
+        self,
+        request: Dict[str, Any],
+        websocket: WebSocketServerProtocol
+    ) -> Dict[str, Any]:
+        """Handle tool request."""
+        name = request.get("name")
+        if not name:
+            return {"error": "Missing tool name", "status": 400}
+
+        try:
+            ctx = Context(
+                request_id=request.get("request_id", ""),
+                metadata=request.get("metadata", {}),
+                transport="websocket"
+            )
+            result = await self.mcp.call_tool(
+                name,
+                ctx,
+                request.get("parameters", {})
+            )
+            return {"data": result, "status": 200}
+        except Exception as e:
+            return {"error": str(e), "status": 500}
+
+    async def _handle_prompt_request(
+        self,
+        request: Dict[str, Any],
+        websocket: WebSocketServerProtocol
+    ) -> Dict[str, Any]:
+        """Handle prompt request."""
+        name = request.get("name")
+        if not name:
+            return {"error": "Missing prompt name", "status": 400}
+
+        try:
+            result = await self.mcp.get_prompt(
+                name,
+                request.get("parameters", {})
+            )
+            return {"data": result, "status": 200}
+        except Exception as e:
+            return {"error": str(e), "status": 500}
+
+    async def _handle_schema_request(
+        self,
+        request: Dict[str, Any],
+        websocket: WebSocketServerProtocol
+    ) -> Dict[str, Any]:
+        """Handle schema request."""
+        try:
+            schema = self.mcp.get_schema()
+            return {"data": schema, "status": 200}
+        except Exception as e:
+            return {"error": str(e), "status": 500}

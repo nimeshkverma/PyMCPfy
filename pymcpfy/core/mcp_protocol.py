@@ -1,42 +1,33 @@
-"""Core MCP protocol implementation for PyMCPfy."""
+"""Core FastMCP integration for PyMCPfy."""
 
-from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Type, Union
-from pydantic import BaseModel
+from fastmcp import FastMCP, Context, Image
+from pydantic import BaseModel, Field
 
-class MCPSchema(BaseModel):
-    """Schema for an MCP-exposed function."""
-    name: str
-    description: str
-    parameters: Dict[str, Dict[str, Any]]
-    return_type: Dict[str, Any]
-    is_async: bool = False
+class MCPResource:
+    """Wrapper for resources exposed via FastMCP."""
+    def __init__(
+        self,
+        func: Callable,
+        path: str,
+        description: Optional[str] = None,
+        return_type: Optional[Type] = None,
+        is_async: bool = False
+    ):
+        self.func = func
+        self.path = path
+        self.description = description or func.__doc__ or ""
+        self.return_type = return_type
+        self.is_async = is_async
 
-@dataclass
-class MCPContext:
-    """Context object passed to MCP-wrapped functions."""
-    request_id: str
-    metadata: Dict[str, Any]
-    transport: str
-    raw_request: Any
+    async def __call__(self, *args, **kwargs) -> Any:
+        """Call the resource function."""
+        if self.is_async:
+            return await self.func(*args, **kwargs)
+        return self.func(*args, **kwargs)
 
-class MCPResponse:
-    """Wrapper for responses from MCP-exposed functions."""
-    def __init__(self, data: Any, status: int = 200, metadata: Optional[Dict[str, Any]] = None):
-        self.data = data
-        self.status = status
-        self.metadata = metadata or {}
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert response to MCP-compatible dictionary."""
-        return {
-            "data": self.data,
-            "status": self.status,
-            "metadata": self.metadata
-        }
-
-class MCPFunction:
-    """Wrapper for functions exposed via MCP."""
+class MCPTool:
+    """Wrapper for tools exposed via FastMCP."""
     def __init__(
         self,
         func: Callable,
@@ -49,82 +40,103 @@ class MCPFunction:
         self.func = func
         self.name = name or func.__name__
         self.description = description or func.__doc__ or ""
-        self.parameter_types = parameter_types or {}
+        self.parameter_types = parameter_types
         self.return_type = return_type
         self.is_async = is_async
 
-    def generate_schema(self) -> MCPSchema:
-        """Generate MCP schema for the function."""
-        parameters = {}
-        for name, type_ in self.parameter_types.items():
-            parameters[name] = {
-                "type": self._get_type_schema(type_),
-                "description": f"Parameter {name}"  # Could be enhanced with docstring parsing
-            }
+    async def __call__(self, ctx: Context, *args, **kwargs) -> Any:
+        """Call the tool function with context."""
+        if self.is_async:
+            return await self.func(ctx, *args, **kwargs)
+        return self.func(ctx, *args, **kwargs)
 
-        return MCPSchema(
-            name=self.name,
-            description=self.description,
-            parameters=parameters,
-            return_type=self._get_type_schema(self.return_type or Any),
-            is_async=self.is_async
-        )
+class MCPPrompt:
+    """Wrapper for prompts exposed via FastMCP."""
+    def __init__(
+        self,
+        func: Callable,
+        name: Optional[str] = None,
+        description: Optional[str] = None
+    ):
+        self.func = func
+        self.name = name or func.__name__
+        self.description = description or func.__doc__ or ""
 
-    @staticmethod
-    def _get_type_schema(type_: Type) -> Dict[str, Any]:
-        """Convert Python type to MCP type schema."""
-        if type_ == str:
-            return {"type": "string"}
-        elif type_ == int:
-            return {"type": "integer"}
-        elif type_ == float:
-            return {"type": "number"}
-        elif type_ == bool:
-            return {"type": "boolean"}
-        elif type_ == List:
-            return {"type": "array"}
-        elif type_ == Dict:
-            return {"type": "object"}
-        else:
-            return {"type": "any"}
+    def __call__(self, *args, **kwargs) -> str:
+        """Call the prompt function."""
+        return self.func(*args, **kwargs)
 
 class MCPRegistry:
-    """Registry for MCP-exposed functions."""
-    def __init__(self):
-        self.functions: Dict[str, MCPFunction] = {}
+    """Registry for FastMCP components."""
+    def __init__(self, app_name: str, dependencies: Optional[List[str]] = None):
+        self.mcp = FastMCP(app_name, dependencies=dependencies)
+        self.resources: Dict[str, MCPResource] = {}
+        self.tools: Dict[str, MCPTool] = {}
+        self.prompts: Dict[str, MCPPrompt] = {}
 
-    def register(
-        self,
-        func: Union[Callable, MCPFunction],
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        parameter_types: Optional[Dict[str, Type]] = None,
-        return_type: Optional[Type] = None,
-        is_async: bool = False
-    ) -> MCPFunction:
-        """Register a function with the MCP registry."""
-        if isinstance(func, MCPFunction):
-            mcp_func = func
-        else:
-            mcp_func = MCPFunction(
-                func=func,
-                name=name,
-                description=description,
-                parameter_types=parameter_types,
-                return_type=return_type,
-                is_async=is_async
-            )
+    def resource(self, path: str, **kwargs):
+        """Decorator to register a resource."""
+        def decorator(func):
+            resource = MCPResource(func, path, **kwargs)
+            self.resources[path] = resource
+            self.mcp.resource(path)(func)
+            return resource
+        return decorator
 
-        self.functions[mcp_func.name] = mcp_func
-        return mcp_func
+    def tool(self, **kwargs):
+        """Decorator to register a tool."""
+        def decorator(func):
+            tool = MCPTool(func, **kwargs)
+            self.tools[tool.name] = tool
+            self.mcp.tool()(func)
+            return tool
+        return decorator
 
-    def get_function(self, name: str) -> Optional[MCPFunction]:
-        """Get a registered function by name."""
-        return self.functions.get(name)
+    def prompt(self, **kwargs):
+        """Decorator to register a prompt."""
+        def decorator(func):
+            prompt = MCPPrompt(func, **kwargs)
+            self.prompts[prompt.name] = prompt
+            self.mcp.prompt()(func)
+            return prompt
+        return decorator
 
-    def get_schema(self) -> Dict[str, MCPSchema]:
-        """Get schema for all registered functions."""
+    def get_resource(self, path: str) -> Optional[MCPResource]:
+        """Get a registered resource by path."""
+        return self.resources.get(path)
+
+    def get_tool(self, name: str) -> Optional[MCPTool]:
+        """Get a registered tool by name."""
+        return self.tools.get(name)
+
+    def get_prompt(self, name: str) -> Optional[MCPPrompt]:
+        """Get a registered prompt by name."""
+        return self.prompts.get(name)
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Get schema for all registered components."""
         return {
-            name: func.generate_schema()
-            for name, func in self.functions.items()
+            "resources": {
+                path: {
+                    "description": resource.description,
+                    "return_type": str(resource.return_type),
+                    "is_async": resource.is_async
+                }
+                for path, resource in self.resources.items()
+            },
+            "tools": {
+                tool.name: {
+                    "description": tool.description,
+                    "parameters": tool.parameter_types,
+                    "return_type": str(tool.return_type),
+                    "is_async": tool.is_async
+                }
+                for tool in self.tools.values()
+            },
+            "prompts": {
+                prompt.name: {
+                    "description": prompt.description
+                }
+                for prompt in self.prompts.values()
+            }
         }

@@ -1,89 +1,96 @@
-# FastAPI Chat Example with PyMCPfy
+# FastAPI Chat Example
 
-This example demonstrates how to build a real-time chat API using FastAPI and expose it via MCP using PyMCPfy.
+This example demonstrates how to build a real-time chat application using FastAPI and FastMCP.
 
 ## Features
 
-- User authentication with JWT
-- RESTful API endpoints for messages
-- Real-time WebSocket communication
-- MCP integration for AI interaction
+- Real-time chat using WebSocket
+- JWT authentication
+- FastMCP integration for MCP functionality
+- Resource definitions for user profiles
+- Tool definitions for chat operations
+- Helpful prompts for chat commands
 
-## Setup
+## Installation
 
-1. Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Run the server:
+## Running the Example
+
 ```bash
 python app.py
 ```
 
-The server will start at:
-- HTTP: http://localhost:8000
-- WebSocket: ws://localhost:8000/ws
-- MCP: ws://localhost:8765
+## FastMCP Usage
+
+### Resources
+
+```python
+@mcp.resource("users://{username}/profile")
+def get_user_profile(username: str) -> dict:
+    """Get a user's profile data."""
+    return {
+        "username": user["username"],
+        "full_name": user["full_name"]
+    }
+```
+
+### Tools
+
+```python
+@mcp.tool()
+async def create_message(ctx: Context, content: str, token: str) -> Message:
+    """Create a new message."""
+    message = Message(
+        id=len(messages),
+        content=content,
+        sender=username,
+        timestamp=datetime.now()
+    )
+    ctx.log.info(f"New message from {username}: {content}")
+    return message
+```
+
+### Prompts
+
+```python
+@mcp.prompt()
+def help_chat() -> str:
+    """Help prompt for chat commands."""
+    return """
+    Available commands:
+    1. Login: Use the login tool
+    2. Get Messages: Use get_messages tool
+    3. Send Message: Use create_message tool
+    4. View Active Users: Check users://active
+    5. View User Profile: Check users://{username}/profile
+    """
+```
 
 ## API Endpoints
 
-### Authentication
+- `POST /token`: Get JWT token
+- `GET /messages`: Get chat messages
+- `POST /messages`: Create new message
+- `WebSocket /ws`: Real-time chat connection
 
+## Testing
+
+1. Get a token:
 ```bash
-# Get access token
-curl -X POST http://localhost:8000/token \
-  -d "username=demo&password=demo123" \
-  -H "Content-Type: application/x-www-form-urlencoded"
+curl -X POST http://localhost:8000/token -d '{"username":"user1","password":"pass1"}'
 ```
 
-### Messages
-
+2. Get messages:
 ```bash
-# Get messages
-curl http://localhost:8000/messages \
-  -H "Authorization: Bearer YOUR_TOKEN"
-
-# Create message
-curl -X POST http://localhost:8000/messages \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"content": "Hello, World!"}'
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/messages
 ```
 
-## MCP Integration
-
-Connect to the MCP server and interact with the API:
-
-```python
-from mcp import MCPClient
-
-async with MCPClient("ws://localhost:8765") as client:
-    # Login
-    token = await client.call_function(
-        "login",
-        {"username": "demo", "password": "demo123"}
-    )
-    
-    # Get messages
-    messages = await client.call_function(
-        "get_messages",
-        {"limit": 10},
-        headers={"Authorization": f"Bearer {token['access_token']}"}
-    )
-    
-    # Send message
-    message = await client.call_function(
-        "create_message",
-        {"content": "Hello via MCP!"},
-        headers={"Authorization": f"Bearer {token['access_token']}"}
-    )
+3. Create message:
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8000/messages -d '{"content":"Hello!"}'
 ```
 
 ## WebSocket Chat

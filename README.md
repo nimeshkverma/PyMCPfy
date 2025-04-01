@@ -16,6 +16,10 @@ PyMCPfy is a Python library that enables developers to easily expose their exist
 - ⚙️ **Flexible Configuration**: Configure via YAML, environment variables, or programmatically
 - 🔒 **Security First**: Built-in support for authentication and authorization
 - 📚 **Comprehensive Documentation**: Detailed guides and examples for all features
+- **FastMCP Integration**: Built on FastMCP for robust MCP support
+- **JWT Authentication**: Support for JSON Web Tokens
+- **WebSocket Support**: Support for WebSocket transport protocol
+- **Comprehensive Examples**: Examples for FastAPI, Flask, and Django
 
 ## Quick Start
 
@@ -91,6 +95,39 @@ python manage.py runmcp
 # Flask/FastAPI
 python app.py --mcp
 ```
+
+## FastMCP Features Used
+
+1. **Resources**: Expose static and dynamic data to LLMs
+   ```python
+   @mcp.resource("users://{user_id}/profile")
+   def get_user_profile(user_id: str) -> dict:
+       """Get user profile data."""
+   ```
+
+2. **Tools**: Define actions that LLMs can take
+   ```python
+   @mcp.tool()
+   async def create_message(ctx: Context, content: str) -> dict:
+       """Create a new message."""
+   ```
+
+3. **Prompts**: Provide helpful templates for LLMs
+   ```python
+   @mcp.prompt()
+   def help_chat() -> str:
+       """Help prompt for chat commands."""
+   ```
+
+4. **Context**: Log and track operations
+   ```python
+   ctx.log.info("Creating new message")
+   ```
+
+5. **Dependencies**: Specify required packages
+   ```python
+   mcp = FastMCP("API", dependencies=["fastapi", "sqlalchemy"])
+   ```
 
 ## Documentation
 
