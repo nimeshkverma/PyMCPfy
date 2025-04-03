@@ -3,8 +3,8 @@ Example Flask application using PyMCPfy decorators.
 """
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
-
-from pymcpfy.flask import mcpfy_resource, mcpfy_tool, mcpfy_prompt
+from ... import pymcpfy
+# from pymcpfy.flask import mcpfy_resource, mcpfy_tool, mcpfy_prompt
 
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
@@ -16,7 +16,7 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
 
 @app.route("/user/<int:user_id>")
-@mcpfy_resource
+@pymcpfy.flask.mcpfy_resource
 def get_user(user_id: int):
     """Get user details by ID."""
     user = User.query.get_or_404(user_id)
@@ -26,7 +26,7 @@ def get_user(user_id: int):
         "email": user.email,
     }
 
-@mcpfy_tool
+@pymcpfy.flask.mcpfy_tool
 def create_user(username: str, email: str) -> dict:
     """Create a new user.
     
@@ -46,7 +46,7 @@ def create_user(username: str, email: str) -> dict:
         "email": user.email,
     }
 
-@mcpfy_prompt
+@pymcpfy.flask.mcpfy_prompt
 def generate_welcome_message(user_data: dict) -> str:
     """Generate a personalized welcome message for a user.
     
