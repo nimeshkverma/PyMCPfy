@@ -6,7 +6,7 @@ from django.http import JsonResponse
 
 from pymcpfy.django import mcpfy_resource, mcpfy_tool, mcpfy_prompt
 
-@mcpfy_resource
+@mcpfy_resource(uri="/user/{user_id}")
 def get_user(request, user_id: int):
     """Get user details by ID."""
     try:
@@ -19,7 +19,7 @@ def get_user(request, user_id: int):
     except User.DoesNotExist:
         return JsonResponse({"error": "User not found"}, status=404)
 
-@mcpfy_tool
+@mcpfy_tool()
 def create_user(username: str, email: str, password: str) -> dict:
     """Create a new user.
     
@@ -42,7 +42,7 @@ def create_user(username: str, email: str, password: str) -> dict:
         "email": user.email,
     }
 
-@mcpfy_prompt
+@mcpfy_prompt()
 def generate_welcome_message(user_data: dict) -> str:
     """Generate a personalized welcome message for a user.
     

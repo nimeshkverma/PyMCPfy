@@ -16,7 +16,7 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
 
 @app.route("/user/<int:user_id>")
-@mcpfy_resource
+@mcpfy_resource(uri="/user/{user_id}")
 def get_user(user_id: int):
     """Get user details by ID."""
     user = User.query.get_or_404(user_id)
@@ -26,7 +26,7 @@ def get_user(user_id: int):
         "email": user.email,
     }
 
-@mcpfy_tool
+@mcpfy_tool()
 def create_user(username: str, email: str) -> dict:
     """Create a new user.
     
@@ -46,7 +46,7 @@ def create_user(username: str, email: str) -> dict:
         "email": user.email,
     }
 
-@mcpfy_prompt
+@mcpfy_prompt()
 def generate_welcome_message(user_data: dict) -> str:
     """Generate a personalized welcome message for a user.
     
@@ -60,6 +60,35 @@ def generate_welcome_message(user_data: dict) -> str:
     """
     return f"Welcome {user_data['username']}! Your account has been created with email {user_data['email']}."
 
+def create_mcp_server():
+    """Create MCP server for testing with MCP Inspector."""
+    from mcp.server.fastmcp import FastMCP
+    
+    # Create MCP server with a descriptive name
+    mcp = FastMCP(
+        "Flask Example",
+        description="Example Flask application using PyMCPfy decorators",
+        dependencies=["flask", "flask-sqlalchemy"]
+    )
+    
+    # Register MCP resources, tools, and prompts
+    mcp.resource(uri="/user/{user_id}", name="get_user")(get_user)
+    mcp.tool(name="create_user")(create_user)
+    mcp.prompt(name="generate_welcome_message")(generate_welcome_message)
+    
+    return mcp
+
 if __name__ == "__main__":
+    import sys
+    
+    # Initialize database
     db.create_all()
-    app.run(debug=True)
+    
+    # Check if we should run in MCP Inspector mode
+    if len(sys.argv) > 1 and sys.argv[1] == "--mcp":
+        # Create and run MCP server
+        mcp = create_mcp_server()
+        mcp.run()
+    else:
+        # Run regular Flask server
+        app.run(debug=True)

@@ -12,7 +12,11 @@ from ..core import MCPfyBase
 
 T = TypeVar("T", bound=Callable[..., Any])
 
-class DjangoMCPfy(MCPfyBase):
+class DjangoMCPfy:
+    """Django integration for PyMCPfy."""
+    
+    def __init__(self):
+        self._mcp_base = MCPfyBase()
     """Django integration for PyMCPfy."""
     
     def init_app(self, app: AppConfig) -> None:
@@ -21,7 +25,7 @@ class DjangoMCPfy(MCPfyBase):
         Args:
             app: Django AppConfig instance
         """
-        super().init_app(app)
+        self._mcp_base.init_app(app)
         # Add MCP middleware if not present
         if "pymcpfy.django.middleware.MCPfyMiddleware" not in settings.MIDDLEWARE:
             settings.MIDDLEWARE.append("pymcpfy.django.middleware.MCPfyMiddleware")
@@ -29,13 +33,31 @@ class DjangoMCPfy(MCPfyBase):
     def resource(self, *args, **kwargs) -> Callable[[T], T]:
         """Decorator to mark a Django view as an MCP resource."""
         def decorator(view_func: T) -> T:
+            # First wrap with MCP resource
+            mcp_args = args
+            mcp_kwargs = kwargs
+            mcp_wrapped = self._mcp_base.resource(*mcp_args, **mcp_kwargs)(view_func)
+            
             @wraps(view_func)
-            def wrapped_view(request: HttpRequest, *args, **kwargs) -> JsonResponse:
-                result = view_func(request, *args, **kwargs)
+            def wrapped_view(request: HttpRequest, *view_args, **view_kwargs) -> JsonResponse:
+                # Pass route parameters to the view function
+                result = view_func(request, *view_args, **view_kwargs)
                 if isinstance(result, (dict, list)):
                     return JsonResponse(result, safe=False)
                 return result
-            return super().resource(*args, **kwargs)(wrapped_view)
+            return wrapped_view
+        return decorator
+
+    def tool(self, *args, **kwargs) -> Callable[[T], T]:
+        """Decorator to mark a function as an MCP tool."""
+        def decorator(func: T) -> T:
+            return self._mcp_base.tool(*args, **kwargs)(func)
+        return decorator
+
+    def prompt(self, *args, **kwargs) -> Callable[[T], T]:
+        """Decorator to mark a function as an MCP prompt."""
+        def decorator(func: T) -> T:
+            return self._mcp_base.prompt(*args, **kwargs)(func)
         return decorator
 
 # Create a singleton instance

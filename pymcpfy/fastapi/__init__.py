@@ -11,7 +11,11 @@ from ..core import MCPfyBase
 
 T = TypeVar("T", bound=Callable[..., Any])
 
-class FastAPIMCPfy(MCPfyBase):
+class FastAPIMCPfy:
+    """FastAPI integration for PyMCPfy."""
+    
+    def __init__(self):
+        self._mcp_base = MCPfyBase()
     """FastAPI integration for PyMCPfy."""
     
     def init_app(self, app: FastAPI) -> None:
@@ -20,7 +24,7 @@ class FastAPIMCPfy(MCPfyBase):
         Args:
             app: FastAPI application instance
         """
-        super().init_app(app)
+        self._mcp_base.init_app(app)
         
         # Register MCP endpoints
         @app.get("/_mcp/health")
@@ -30,13 +34,38 @@ class FastAPIMCPfy(MCPfyBase):
     def resource(self, *args, **kwargs) -> Callable[[T], T]:
         """Decorator to mark a FastAPI route as an MCP resource."""
         def decorator(route_func: T) -> T:
+            # First wrap with MCP resource
+            mcp_wrapped = self._mcp_base.resource(*args, **kwargs)(route_func)
+            
             @wraps(route_func)
-            async def wrapped_route(*args, **kwargs):
-                result = await route_func(*args, **kwargs)
+            async def wrapped_route(*route_args, **route_kwargs):
+                # Pass route parameters to the route function
+                result = await route_func(*route_args, **route_kwargs)
                 if isinstance(result, (dict, list)):
                     return JSONResponse(content=result)
                 return result
-            return super().resource(*args, **kwargs)(wrapped_route)
+            
+            # Preserve FastAPI route info
+            wrapped_route.__signature__ = route_func.__signature__
+            
+            # Copy MCP metadata to the wrapped route
+            for attr in dir(mcp_wrapped):
+                if attr.startswith('_mcp_'):
+                    setattr(wrapped_route, attr, getattr(mcp_wrapped, attr))
+            
+            return wrapped_route
+        return decorator
+
+    def tool(self, *args, **kwargs) -> Callable[[T], T]:
+        """Decorator to mark a function as an MCP tool."""
+        def decorator(func: T) -> T:
+            return self._mcp_base.tool(*args, **kwargs)(func)
+        return decorator
+
+    def prompt(self, *args, **kwargs) -> Callable[[T], T]:
+        """Decorator to mark a function as an MCP prompt."""
+        def decorator(func: T) -> T:
+            return self._mcp_base.prompt(*args, **kwargs)(func)
         return decorator
 
 # Create a singleton instance
