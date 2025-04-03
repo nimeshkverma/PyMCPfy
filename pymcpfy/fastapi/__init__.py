@@ -39,7 +39,21 @@ class FastAPIMCPfy(MCPfyBase):
             return super().resource(*args, **kwargs)(wrapped_route)
         return decorator
 
-fastapi_mcpfy = FastAPIMCPfy()
-mcpfy_resource = fastapi_mcpfy.resource
-mcpfy_tool = fastapi_mcpfy.tool
-mcpfy_prompt = fastapi_mcpfy.prompt
+# Create a singleton instance
+_fastapi_mcpfy = FastAPIMCPfy()
+
+# Expose decorators at module level
+mcpfy_resource = _fastapi_mcpfy.resource
+mcpfy_tool = _fastapi_mcpfy.tool
+mcpfy_prompt = _fastapi_mcpfy.prompt
+
+# Expose the instance for advanced usage
+fastapi_mcpfy = _fastapi_mcpfy
+
+__all__ = [
+    "FastAPIMCPfy",
+    "mcpfy_resource",
+    "mcpfy_tool",
+    "mcpfy_prompt",
+    "fastapi_mcpfy",
+]

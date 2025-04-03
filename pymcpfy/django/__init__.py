@@ -38,7 +38,21 @@ class DjangoMCPfy(MCPfyBase):
             return super().resource(*args, **kwargs)(wrapped_view)
         return decorator
 
-django_mcpfy = DjangoMCPfy()
-mcpfy_resource = django_mcpfy.resource
-mcpfy_tool = django_mcpfy.tool
-mcpfy_prompt = django_mcpfy.prompt
+# Create a singleton instance
+_django_mcpfy = DjangoMCPfy()
+
+# Expose decorators at module level
+mcpfy_resource = _django_mcpfy.resource
+mcpfy_tool = _django_mcpfy.tool
+mcpfy_prompt = _django_mcpfy.prompt
+
+# Expose the instance for advanced usage
+django_mcpfy = _django_mcpfy
+
+__all__ = [
+    "DjangoMCPfy",
+    "mcpfy_resource",
+    "mcpfy_tool",
+    "mcpfy_prompt",
+    "django_mcpfy",
+]

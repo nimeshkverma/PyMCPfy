@@ -38,7 +38,21 @@ class FlaskMCPfy(MCPfyBase):
             return super().resource(*args, **kwargs)(wrapped_view)
         return decorator
 
-flask_mcpfy = FlaskMCPfy()
-mcpfy_resource = flask_mcpfy.resource
-mcpfy_tool = flask_mcpfy.tool
-mcpfy_prompt = flask_mcpfy.prompt
+# Create a singleton instance
+_flask_mcpfy = FlaskMCPfy()
+
+# Expose decorators at module level
+mcpfy_resource = _flask_mcpfy.resource
+mcpfy_tool = _flask_mcpfy.tool
+mcpfy_prompt = _flask_mcpfy.prompt
+
+# Expose the instance for advanced usage
+flask_mcpfy = _flask_mcpfy
+
+__all__ = [
+    "FlaskMCPfy",
+    "mcpfy_resource",
+    "mcpfy_tool",
+    "mcpfy_prompt",
+    "flask_mcpfy",
+]
